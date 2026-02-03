@@ -910,39 +910,86 @@ class PerformanceWindow(tk.Tk):
                 except Exception:
                     chord_font = font
 
-                # Render: if a wrapped line contains bracketed chords, render a chord-only line above the lyric line
+                # Notation and chord handling: support {notation} (above) and [chords] (above lyrics)
+                # Notation font for {..} blocks (use a clear proportional bold font if available)
+                notation_font = font
+                try:
+                    for cand in ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                                 "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf"):
+                        try:
+                            notation_font = ImageFont.truetype(cand, max(12, int(font_size * 0.9)))
+                            break
+                        except Exception:
+                            continue
+                except Exception:
+                    notation_font = font
+
+                notation_color = (30, 144, 255)  # bvright-like blue
+
                 # Add a small chord_margin so chords don't sit flush at the top of the slot
                 chord_margin = max(6, int(lyric_spacing * 0.15))
                 chord_offset = max(8, int(base_line_h * 0.6))  # vertical offset between chord line and lyric
+
+                # Pre-count notation occurrences so image height can include extra lines
+                extra_notation_lines = sum(1 if '{' in l else 0 for l in wrapped_lines)
+
                 for l in wrapped_lines:
                     x = padding
-                    if '[' in l:
-                        # We'll draw chords at 'cy' and lyrics at 'ly'
+                    # split into segments capturing chords and notation
+                    parts = re.split(r'(\[[^]]+\]|\{[^}]+\})', l)
+                    has_notation = any(seg.startswith('{') and seg.endswith('}') for seg in parts)
+                    has_chord = any(seg.startswith('[') and seg.endswith(']') for seg in parts)
+
+                    # Establish vertical positions
+                    if has_notation:
+                        ny = y  # notation y (top of slot)
+                        cy = ny + base_line_h + chord_margin
+                        ly = cy + chord_offset
+                    elif has_chord:
                         cy = y + chord_margin
                         ly = cy + chord_offset
+                    else:
+                        ly = y + max(0, (lyric_spacing - base_line_h) // 2)
 
-                        # First pass: draw lyrics (skip bracketed chords)
-                        parts = re.split(r'(\[[^]]+\])', l)
-                        for seg in parts:
-                            if not seg:
-                                continue
-                            if seg.startswith('[') and seg.endswith(']'):
-                                # skip chords when drawing lyrics, advance x by bracketed width
-                                try:
-                                    seg_w = font.getsize(seg)[0]
-                                except Exception:
-                                    seg_w = len(seg) * char_w
-                                x += seg_w
-                                continue
-                            else:
-                                draw.text((x, ly), seg, font=font, fill=fg)
-                                try:
-                                    seg_w = font.getsize(seg)[0]
-                                except Exception:
-                                    seg_w = len(seg) * char_w
-                                x += seg_w
+                    # Draw notation line(s) centered
+                    if has_notation:
+                        notes = [seg[1:-1].strip() for seg in parts if seg.startswith('{') and seg.endswith('}')]
+                        note_text = '   '.join(notes)
+                        try:
+                            nw = notation_font.getsize(note_text)[0]
+                        except Exception:
+                            nw = len(note_text) * char_w
+                        note_x = padding + max(0, (base_w - padding * 2 - nw) // 2)
+                        draw.text((note_x, ny), note_text, font=notation_font, fill=notation_color)
 
-                        # Second pass: draw chords above at their respective x positions
+                    # First pass: draw lyrics (skip bracketed chords and notation blocks)
+                    for seg in parts:
+                        if not seg:
+                            continue
+                        if seg.startswith('[') and seg.endswith(']'):
+                            try:
+                                seg_w = font.getsize(seg)[0]
+                            except Exception:
+                                seg_w = len(seg) * char_w
+                            x += seg_w
+                            continue
+                        if seg.startswith('{') and seg.endswith('}'):
+                            try:
+                                seg_w = notation_font.getsize(seg)[0]
+                            except Exception:
+                                seg_w = len(seg) * char_w
+                            x += seg_w
+                            continue
+                        else:
+                            draw.text((x, ly), seg, font=font, fill=fg)
+                            try:
+                                seg_w = font.getsize(seg)[0]
+                            except Exception:
+                                seg_w = len(seg) * char_w
+                            x += seg_w
+
+                    # Second pass: draw chords above at their respective x positions
+                    if has_chord:
                         x = padding
                         for seg in parts:
                             if not seg:
@@ -964,11 +1011,11 @@ class PerformanceWindow(tk.Tk):
                                     seg_w = len(seg) * char_w
                                 x += seg_w
 
+                    # Advance y: add extra space if we drew a notation line
+                    if has_notation:
+                        y += lyric_spacing + base_line_h
                     else:
-                        # Center plain lyric vertically within the lyric_spacing area
-                        ly = y + max(0, (lyric_spacing - base_line_h) // 2)
-                        draw.text((padding, ly), l, font=font, fill=fg)
-                    y += lyric_spacing
+                        y += lyric_spacing
 
             else:
                 with fitz.open(path) as doc:
