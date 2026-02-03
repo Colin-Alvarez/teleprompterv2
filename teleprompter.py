@@ -692,6 +692,19 @@ class PerformanceWindow(tk.Tk):
     def _load_current(self):
         if not self.setlist:
             # Nothing to show — give a friendly message instead of silently doing nothing.
+            try:
+                # Debug write so we can see this branch exercised
+                if os.environ.get("TELEPROMPTER_DEBUG_RENDER"):
+                    with open("/tmp/tele_debug.json", "w") as f:
+                        json.dump({
+                            "ts": time.time(),
+                            "event": "no_setlist",
+                            "setlist_len": 0,
+                            "chart_index": self.chart_index
+                        }, f)
+            except Exception:
+                pass
+
             self.canvas.delete("all")
             self.canvas.create_text(20, 20, anchor="nw", fill="white",
                                     text="No charts available. Open Setup to add charts.")
@@ -787,6 +800,23 @@ class PerformanceWindow(tk.Tk):
                 img = ImageEnhance.Brightness(img).enhance(DARK_BRIGHTNESS)
 
             self._img_pil = img
+            # Debug: write image info so we can inspect what was rendered
+            try:
+                if os.environ.get("TELEPROMPTER_DEBUG_RENDER"):
+                    with open("/tmp/tele_debug.json", "w") as f:
+                        json.dump({
+                            "ts": time.time(),
+                            "event": "render_ok",
+                            "path": path,
+                            "cho_rendered": cho_rendered,
+                            "img_size": [img.width, img.height],
+                            "dark_mode": self.dark_mode,
+                            "cho_font_size": self.cho_font_size,
+                            "cho_transpose_semitones": self.cho_transpose_semitones,
+                        }, f)
+            except Exception:
+                pass
+
             # keep current y_offset when re-rendering cho on zoom/transpose if possible
             try:
                 # leave y_offset unchanged; clamp it to the new image size
@@ -796,6 +826,20 @@ class PerformanceWindow(tk.Tk):
             self._redraw()
 
         except Exception as e:
+            # Log error details to help debug headless/black-screen issues
+            try:
+                if os.environ.get("TELEPROMPTER_DEBUG_RENDER"):
+                    with open("/tmp/tele_debug.json", "w") as f:
+                        json.dump({
+                            "ts": time.time(),
+                            "event": "render_error",
+                            "path": path,
+                            "cho_rendered": cho_rendered,
+                            "error": str(e)
+                        }, f)
+            except Exception:
+                pass
+
             self._img_pil = None
             self.canvas.delete("all")
             self.canvas.create_text(
@@ -819,6 +863,28 @@ class PerformanceWindow(tk.Tk):
     def _redraw(self):
         self.canvas.delete("all")
         if not self._img_pil:
+            # Visible fallback + debug logging so we can see whether the canvas draws
+            try:
+                cw = max(1, self.canvas.winfo_width())
+                ch = max(1, self.canvas.winfo_height())
+                if os.environ.get("TELEPROMPTER_DEBUG_RENDER"):
+                    with open("/tmp/tele_debug.json", "w") as f:
+                        json.dump({
+                            "ts": time.time(),
+                            "event": "no_img",
+                            "canvas_size": [cw, ch],
+                            "y_offset": self.y_offset,
+                            "chart_index": self.chart_index,
+                            "setlist_len": len(self.setlist),
+                        }, f)
+                # Draw a clear fallback so we know canvas works
+                try:
+                    self.canvas.create_rectangle(0, 0, cw, ch, fill="#800", outline="")
+                    self.canvas.create_text(cw // 2, ch // 2, text="NO IMAGE", fill="white", font=("Arial", 48, "bold"))
+                except Exception:
+                    pass
+            except Exception:
+                pass
             return
 
         cw = max(1, self.canvas.winfo_width())
