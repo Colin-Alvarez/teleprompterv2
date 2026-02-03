@@ -846,13 +846,15 @@ class PerformanceWindow(tk.Tk):
                     chord_font = font
 
                 # Render: if a wrapped line contains bracketed chords, render a chord-only line above the lyric line
+                # Add a small chord_margin so chords don't sit flush at the top of the slot
+                chord_margin = max(6, int(lyric_spacing * 0.15))
                 chord_offset = max(8, int(base_line_h * 0.6))  # vertical offset between chord line and lyric
                 for l in wrapped_lines:
                     x = padding
                     if '[' in l:
                         # We'll draw chords at 'cy' and lyrics at 'ly'
-                        cy = y
-                        ly = y + chord_offset
+                        cy = y + chord_margin
+                        ly = cy + chord_offset
 
                         # First pass: draw lyrics (skip bracketed chords)
                         parts = re.split(r'(\[[^]]+\])', l)
