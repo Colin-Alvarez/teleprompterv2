@@ -9,6 +9,7 @@ Raspberry Pi PDF Teleprompter
 import os
 import json
 import time
+import shutil
 import tkinter as tk
 from tkinter import ttk, messagebox
 from dataclasses import dataclass
@@ -49,6 +50,17 @@ class KeyMap:
     quit_app: Tuple[str, ...] = ("Escape", "q")
     toggle_help: Tuple[str, ...] = ("h",)
     toggle_dark: Tuple[str, ...] = ("d",)
+
+    # .cho controls (zoom and transpose)
+    cho_zoom_in: Tuple[str, ...] = ("plus", "equal")  # + or =
+    cho_zoom_out: Tuple[str, ...] = ("minus",)
+    cho_zoom_reset: Tuple[str, ...] = ("0",)
+
+    cho_transpose_up: Tuple[str, ...] = ("u",)
+    cho_transpose_down: Tuple[str, ...] = ("j",)
+    cho_transpose_reset: Tuple[str, ...] = ("r",)
+
+    cho_toggle_edit: Tuple[str, ...] = ("e",)
 
 
 def list_pdfs(charts_dir: str) -> List[str]:
@@ -159,6 +171,36 @@ class SetupWindow(ttk.Frame):
         self.master.columnconfigure(0, weight=1)
         self.master.rowconfigure(0, weight=1)
 
+        # V2: Expand dialog dimensions for portrait touchscreen.
+        # Target ~90% width, ~80% height of screen. Increase visible rows in list boxes.
+        try:
+            screen_w = self.master.winfo_screenwidth()
+            screen_h = self.master.winfo_screenheight()
+            # Choose listbox rows proportionally (larger on tall screens)
+            listbox_rows = min(40, max(18, int(screen_h / 60)))
+
+            # If portrait (taller than wide), set dialog to ~90% x 80% and center it
+            if screen_h > screen_w:
+                dlg_w = int(screen_w * 0.9)
+                dlg_h = int(screen_h * 0.8)
+                x = (screen_w - dlg_w) // 2
+                y = (screen_h - dlg_h) // 2
+                try:
+                    self.master.geometry(f"{dlg_w}x{dlg_h}+{x}+{y}")
+                except Exception:
+                    pass
+                # Make sure minimum size keeps controls reachable on smaller screens
+                try:
+                    self.master.minsize(max(820, int(dlg_w * 0.6)), max(520, int(dlg_h * 0.4)))
+                except Exception:
+                    self.master.minsize(820, 520)
+            else:
+                listbox_rows = 18
+                self.master.minsize(820, 520)
+        except Exception:
+            listbox_rows = 18
+            self.master.minsize(820, 520)
+
         top = ttk.Frame(self)
         top.grid(row=0, column=0, sticky="ew")
         top.columnconfigure(1, weight=1)
@@ -175,7 +217,7 @@ class SetupWindow(ttk.Frame):
         mid.rowconfigure(1, weight=1)
 
         ttk.Label(mid, text="Available PDFs").grid(row=0, column=0, sticky="w")
-        self.av_list = tk.Listbox(mid, selectmode="extended", height=18)
+        self.av_list = tk.Listbox(mid, selectmode="extended", height=listbox_rows)
         self.av_list.grid(row=1, column=0, sticky="nsew")
         self._refresh_available_box()
 
@@ -188,7 +230,7 @@ class SetupWindow(ttk.Frame):
         ttk.Button(btns, text="Move Down", command=lambda: self._move(1)).grid(row=4, column=0, pady=6, sticky="ew")
 
         ttk.Label(mid, text="Setlist").grid(row=0, column=2, sticky="w")
-        self.sl_list = tk.Listbox(mid, selectmode="extended", height=18)
+        self.sl_list = tk.Listbox(mid, selectmode="extended", height=listbox_rows)
         self.sl_list.grid(row=1, column=2, sticky="nsew")
         self._refresh_setlist_box()
 
@@ -204,8 +246,6 @@ class SetupWindow(ttk.Frame):
             foreground="#555"
         )
         hint.grid(row=3, column=0, sticky="w", pady=(10, 0))
-
-        self.master.minsize(820, 520)
 
     def _refresh_available_box(self):
         self.av_list.delete(0, "end")
@@ -329,6 +369,17 @@ class PerformanceWindow(tk.Tk):
         self.dark_mode = True
         self.help_visible = False
 
+        # .cho state
+        self.cho_font_size = max(14, int(14 * RENDER_ZOOM))
+        self.cho_min_font_size = 8
+        self.cho_max_font_size = 48
+        self.cho_transpose_semitones = 0
+
+        # editor state
+        self.cho_edit_mode = False
+        self.cho_edit_window: Optional[tk.Toplevel] = None
+        self._last_cho_text: Optional[str] = None
+
         self.canvas = tk.Canvas(self, bg="black", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
 
@@ -413,6 +464,49 @@ class PerformanceWindow(tk.Tk):
             self.dark_mode = not self.dark_mode
             self._load_current()
             return
+
+        # .cho zoom controls (only applies to .cho files)
+        path = None
+        try:
+            path = self.setlist[self.chart_index]
+        except Exception:
+            path = None
+
+        if path and path.lower().endswith('.cho'):
+            if k in self.keymap.cho_zoom_in:
+                self.cho_font_size = min(self.cho_max_font_size, self.cho_font_size + 2)
+                self._load_current()
+                return
+            if k in self.keymap.cho_zoom_out:
+                self.cho_font_size = max(self.cho_min_font_size, self.cho_font_size - 2)
+                self._load_current()
+                return
+            if k in self.keymap.cho_zoom_reset:
+                self.cho_font_size = max(14, int(14 * RENDER_ZOOM))
+                self._load_current()
+                return
+
+            # transpose chords inside [brackets]
+            if k in self.keymap.cho_transpose_up:
+                self.cho_transpose_semitones = (self.cho_transpose_semitones + 1) % 12
+                self._load_current()
+                return
+            if k in self.keymap.cho_transpose_down:
+                self.cho_transpose_semitones = (self.cho_transpose_semitones - 1) % 12
+                self._load_current()
+                return
+            if k in self.keymap.cho_transpose_reset:
+                self.cho_transpose_semitones = 0
+                self._load_current()
+                return
+
+            # Toggle edit mode for .cho
+            if k in self.keymap.cho_toggle_edit:
+                if self.cho_edit_mode:
+                    self._close_cho_editor()
+                else:
+                    self._open_cho_editor()
+                return
 
         # --- Scroll / Combo handling ---
         if k in self.keymap.scroll_down or k in self.keymap.scroll_up:
@@ -553,20 +647,43 @@ class PerformanceWindow(tk.Tk):
         path = self.setlist[self.chart_index]
 
         try:
-            # If it's a .cho (ChordPro-style) file, render the plain text into an image.
+            cho_rendered = False
+
+            # If it's a .cho (ChordPro-style) file, render the plain text into an image using a monospaced font.
             if path.lower().endswith('.cho'):
+                cho_rendered = True
                 try:
                     with open(path, 'r', encoding='utf-8') as f:
                         text = f.read()
-                except Exception as e:
+                except Exception:
                     raise
 
-                # Render text into an image. Choose a reasonable base width and wrap lines.
-                font = ImageFont.load_default()
-                # pick a base width in pixels that will later be scaled to the canvas width
-                base_w = max(800, int(1200 * RENDER_ZOOM))
-                # Estimate characters per line based on an 'M' width
-                char_w = max(6, font.getsize('M')[0])
+                # Apply transpose to chords inside brackets if requested
+                if self.cho_transpose_semitones != 0:
+                    text = transpose_chords_in_text(text, self.cho_transpose_semitones)
+
+                # Prefer a common monospaced system font; fall back to default.
+                font_size = self.cho_font_size
+                font = None
+                try:
+                    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", font_size)
+                except Exception:
+                    try:
+                        font = ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf", font_size)
+                    except Exception:
+                        font = ImageFont.load_default()
+
+                # Determine base width using screen width so we scale nicely later in _redraw
+                try:
+                    base_w = max(800, int(self.winfo_screenwidth() * max(1.0, RENDER_ZOOM)))
+                except Exception:
+                    base_w = max(800, int(1200 * RENDER_ZOOM))
+
+                # Estimate characters per line and wrap
+                try:
+                    char_w = max(4, font.getsize('M')[0])
+                except Exception:
+                    char_w = 8
                 max_chars = max(40, base_w // char_w)
 
                 import textwrap
@@ -577,15 +694,28 @@ class PerformanceWindow(tk.Tk):
                     else:
                         wrapped_lines.extend(textwrap.wrap(line, width=max_chars))
 
-                line_h = font.getsize('A')[1] + 2
-                padding = 20
-                img_h = padding * 2 + max(200, line_h * len(wrapped_lines))
+                # Line height and padding (a bit more spacing for touch readability)
+                try:
+                    fh = font.getsize('A')[1]
+                except Exception:
+                    fh = 12
+                line_h = max(18, int(fh * 1.25))
+                padding = 24
+                img_h = padding * 2 + max(300, line_h * len(wrapped_lines))
 
-                img = Image.new('RGB', (base_w, img_h), color='white')
+                # Background/text colors respect dark_mode without additional transforms
+                if self.dark_mode:
+                    bg = (0, 0, 0)
+                    fg = (255, 255, 255)
+                else:
+                    bg = (255, 255, 255)
+                    fg = (0, 0, 0)
+
+                img = Image.new('RGB', (base_w, img_h), color=bg)
                 draw = ImageDraw.Draw(img)
                 y = padding
                 for l in wrapped_lines:
-                    draw.text((padding, y), l, font=font, fill='black')
+                    draw.text((padding, y), l, font=font, fill=fg)
                     y += line_h
 
             else:
@@ -596,15 +726,20 @@ class PerformanceWindow(tk.Tk):
                     pix = page.get_pixmap(matrix=mat, alpha=False)
                     img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-            if self.dark_mode:
+            # Apply PDF-only dark-mode transforms (CHO images already rendered with correct colors above).
+            if not cho_rendered and self.dark_mode:
                 if DARK_INVERT:
                     img = ImageOps.invert(img)
                 img = ImageEnhance.Contrast(img).enhance(DARK_CONTRAST)
                 img = ImageEnhance.Brightness(img).enhance(DARK_BRIGHTNESS)
 
             self._img_pil = img
-            self.y_offset = 0
-            self._clamp_offset()
+            # keep current y_offset when re-rendering cho on zoom/transpose if possible
+            try:
+                # leave y_offset unchanged; clamp it to the new image size
+                self._clamp_offset()
+            except Exception:
+                self.y_offset = 0
             self._redraw()
 
         except Exception as e:
@@ -614,6 +749,164 @@ class PerformanceWindow(tk.Tk):
                 20, 20, anchor="nw", fill="white",
                 text=f"Error loading:\n{path}\n\n{e}"
             )
+
+
+def transpose_chords_in_text(text: str, semitones: int) -> str:
+    """Transpose chords inside [brackets] by `semitones`.
+
+    Rules:
+    - Only transpose tokens inside square brackets.
+    - Transpose root notes and slash/bass notes, preserve chord qualities (m, 7, maj7, etc).
+    - Operates on a copy of the text (does not modify files on disk).
+    """
+    import re
+
+    NOTE_MAP = {
+        'C':0,'B#':0,'C#':1,'DB':1,'D':2,'D#':3,'EB':3,'E':4,'FB':4,'F':5,'E#':5,
+        'F#':6,'GB':6,'G':7,'G#':8,'AB':8,'A':9,'A#':10,'BB':10,'B':11,'CB':11
+    }
+    NOTES_SHARP = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']
+    NOTES_FLAT = ['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B']
+
+    def transpose_root_token(tok: str) -> str:
+        # Match root (letter), optional accidental (# or b), rest (qualities)
+        m = re.match(r'^([A-Ga-g])([#b♯♭]?)(.*)$', tok)
+        if not m:
+            return tok
+        root = m.group(1).upper()
+        acc = m.group(2).replace('♯','#').replace('♭','b')
+        rest = m.group(3)
+        key = root + (acc if acc else '')
+        key_u = key.upper()
+        idx = NOTE_MAP.get(key_u)
+        if idx is None:
+            # try natural note
+            idx = NOTE_MAP.get(root)
+            if idx is None:
+                return tok
+        new_idx = (idx + semitones) % 12
+        # prefer flats if original used 'b', sharps if used '#', otherwise sharps
+        if 'b' in acc:
+            new_root = NOTES_FLAT[new_idx]
+        elif '#' in acc:
+            new_root = NOTES_SHARP[new_idx]
+        else:
+            new_root = NOTES_SHARP[new_idx]
+        return new_root + rest
+
+    def repl(m: re.Match) -> str:
+        content = m.group(1)
+        parts = content.split()
+        new_parts = []
+        for token in parts:
+            # handle slash chords like D/F#
+            if '/' in token:
+                subs = token.split('/')
+                new_subs = [transpose_root_token(s) for s in subs]
+                new_parts.append('/'.join(new_subs))
+            else:
+                new_parts.append(transpose_root_token(token))
+        return '[' + ' '.join(new_parts) + ']'
+
+    return re.sub(r'\[([^]]+)\]', repl, text)
+
+
+    # Simple .cho editor UI + save handling
+    # - Toggle edit mode with key defined in KeyMap (`cho_toggle_edit`).
+    # - Save writes back to the original file and creates a `.bak` on first save.
+    # - Success/failure messages shown via messagebox.
+
+    def _open_cho_editor(self):
+        if not hasattr(self, 'setlist') or not self.setlist:
+            return
+        path = self.setlist[self.chart_index]
+        if not path.lower().endswith('.cho'):
+            messagebox.showwarning("Edit mode", "Edit mode is only available for .cho files.")
+            return
+
+        # Load last text if not present
+        if self._last_cho_text is None:
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    self._last_cho_text = f.read()
+            except Exception as e:
+                messagebox.showerror("Error", f"Unable to open file for editing:\n{e}")
+                return
+
+        if self.cho_edit_window is not None:
+            try:
+                self.cho_edit_window.lift()
+                return
+            except Exception:
+                self.cho_edit_window = None
+
+        win = tk.Toplevel(self)
+        win.title(f"Edit: {os.path.basename(path)}")
+        win.geometry("800x600")
+        win.transient(self)
+        win.grab_set()
+
+        frm = ttk.Frame(win, padding=8)
+        frm.pack(fill='both', expand=True)
+
+        txt = tk.Text(frm, wrap='none')
+        txt.insert('1.0', self._last_cho_text)
+        txt.pack(side='left', fill='both', expand=True)
+
+        ybar = ttk.Scrollbar(frm, orient='vertical', command=txt.yview)
+        txt['yscrollcommand'] = ybar.set
+        ybar.pack(side='right', fill='y')
+
+        btns = ttk.Frame(win, padding=8)
+        btns.pack(fill='x')
+        ttk.Button(btns, text='Save', command=lambda: self._save_cho_editor(path, txt)).pack(side='left')
+        ttk.Button(btns, text='Close', command=self._close_cho_editor).pack(side='right')
+
+        self.cho_edit_mode = True
+        self.cho_edit_window = win
+        self.cho_edit_text_widget = txt
+
+
+    def _close_cho_editor(self):
+        try:
+            if self.cho_edit_window is not None:
+                try:
+                    self.cho_edit_window.grab_release()
+                except Exception:
+                    pass
+                try:
+                    self.cho_edit_window.destroy()
+                except Exception:
+                    pass
+        finally:
+            self.cho_edit_window = None
+            self.cho_edit_text_widget = None
+            self.cho_edit_mode = False
+
+
+    def _save_cho_editor(self, path: str, txt_widget: tk.Text):
+        # Read text
+        try:
+            new_text = txt_widget.get('1.0', 'end-1c')
+        except Exception as e:
+            messagebox.showerror("Save error", f"Unable to read editor contents:\n{e}")
+            return
+
+        bak_path = f"{path}.bak"
+        try:
+            # Create backup on first save if not present
+            if not os.path.exists(bak_path):
+                shutil.copy2(path, bak_path)
+
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(new_text)
+
+            # update cached text and re-render
+            self._last_cho_text = new_text
+            self._load_current()
+            messagebox.showinfo("Saved", f"Saved {os.path.basename(path)}\nBackup: {os.path.basename(bak_path)} (created if not present)")
+        except Exception as e:
+            messagebox.showerror("Save error", f"Unable to save file:\n{e}")
 
     def _clamp_offset(self):
         if not self._img_pil:
