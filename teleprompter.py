@@ -840,6 +840,15 @@ class PerformanceWindow(tk.Tk):
         self._img_tk = ImageTk.PhotoImage(crop)
         self.canvas.create_image(0, 0, anchor="nw", image=self._img_tk)
 
+        # Debug overlay (visible when TELEPROMPTER_DEBUG_RENDER env var is set)
+        try:
+            if os.environ.get("TELEPROMPTER_DEBUG_RENDER"):
+                # Draw a high-contrast banner and large text so it's obvious on any theme
+                self.canvas.create_rectangle(0, 0, cw, 140, fill="white", outline="")
+                self.canvas.create_text(20, 28, anchor="nw", fill="black", text="RENDER TEST", font=("Arial", 48, "bold"))
+        except Exception:
+            pass
+
 
 def transpose_chords_in_text(text: str, semitones: int) -> str:
     """Transpose chords inside [brackets] by `semitones`.
