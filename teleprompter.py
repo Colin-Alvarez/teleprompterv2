@@ -953,8 +953,21 @@ class PerformanceWindow(tk.Tk):
 
                     # Draw notation line(s) centered
                     if has_notation:
-                        notes = [seg[1:-1].strip() for seg in parts if seg.startswith('{') and seg.endswith('}')]
-                        note_text = '   '.join(notes)
+                        raw_notes = [seg[1:-1].strip() for seg in parts if seg.startswith('{') and seg.endswith('}')]
+                        # If notation contains a key like 'comment: intro' prefer the value (drop key)
+                        display_notes = []
+                        for n in raw_notes:
+                            if ':' in n:
+                                k, v = n.split(':', 1)
+                                if k.strip().lower() in {
+                                    'comment', 'title', 'page', 'intro', 'chorus', 'verse', 'outro', 'bridge', 'repeat', 'refrain', 'section'
+                                }:
+                                    display_notes.append(v.strip())
+                                else:
+                                    display_notes.append(n)
+                            else:
+                                display_notes.append(n)
+                        note_text = '   '.join([dn for dn in display_notes if dn])
                         try:
                             nw = notation_font.getsize(note_text)[0]
                         except Exception:
