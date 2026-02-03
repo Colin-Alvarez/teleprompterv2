@@ -788,6 +788,9 @@ class PerformanceWindow(tk.Tk):
                 except Exception:
                     base_w = max(800, int(1200))
 
+                # Content padding so text doesn't touch edges
+                padding = 24
+
                 # Estimate characters per line and wrap using available content width
                 try:
                     char_w = max(4, font.getsize('M')[0])
@@ -811,7 +814,6 @@ class PerformanceWindow(tk.Tk):
                 base_line_h = max(18, int(fh * 1.4))
                 # Double spacing so there is an empty line between lyrics to accommodate chord lines above
                 lyric_spacing = base_line_h * 2
-                padding = 24
                 # The image height uses lyric_spacing per wrapped line
                 # Continuous flow: height equals the content height (no enforced page minimum)
                 img_h = padding * 2 + max(300, lyric_spacing * len(wrapped_lines))
