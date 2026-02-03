@@ -810,7 +810,9 @@ class PerformanceWindow(tk.Tk):
                 # Slightly larger line spacing for readability on touch screens
                 line_h = max(18, int(fh * 1.4))
                 padding = 24
-                img_h = padding * 2 + max(300, line_h * len(wrapped_lines))
+                # Account for an extra chord line above any wrapped line that contains bracketed chords
+                visual_lines = sum(1 + (1 if '[' in l else 0) for l in wrapped_lines)
+                img_h = padding * 2 + max(300, line_h * visual_lines)
 
                 # Background/text colors respect dark_mode without additional transforms
                 if self.dark_mode:
@@ -826,29 +828,71 @@ class PerformanceWindow(tk.Tk):
                 draw = ImageDraw.Draw(img)
                 y = padding
                 import re
+                # Try to use a bold monospaced font for chords if available
+                chord_font = font
+                try:
+                    for bold_candidate in ("/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
+                                            "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf"):
+                        try:
+                            chord_font = ImageFont.truetype(bold_candidate, font_size)
+                            break
+                        except Exception:
+                            continue
+                except Exception:
+                    chord_font = font
+
+                # Render: if a wrapped line contains bracketed chords, render a chord-only line above the lyric line
+                chord_offset = max(6, int(line_h * 0.45))  # vertical offset between chord line and lyric
                 for l in wrapped_lines:
                     x = padding
                     if '[' in l:
-                        # split into bracketed chord segments and other text
+                        # We'll draw chords at 'cy' and lyrics at 'ly'
+                        cy = y
+                        ly = y + chord_offset
+
+                        # First pass: draw lyrics (skip bracketed chords)
                         parts = re.split(r'(\[[^]]+\])', l)
                         for seg in parts:
                             if not seg:
                                 continue
                             if seg.startswith('[') and seg.endswith(']'):
-                                # Draw chords (including brackets) in chord_color
-                                draw.text((x, y), seg, font=font, fill=chord_color)
+                                # skip chords when drawing lyrics
                                 try:
                                     seg_w = font.getsize(seg)[0]
+                                except Exception:
+                                    seg_w = len(seg) * char_w
+                                x += seg_w
+                                continue
+                            else:
+                                draw.text((x, ly), seg, font=font, fill=fg)
+                                try:
+                                    seg_w = font.getsize(seg)[0]
+                                except Exception:
+                                    seg_w = len(seg) * char_w
+                                x += seg_w
+
+                        # Second pass: draw chords above at their respective x positions
+                        x = padding
+                        for seg in parts:
+                            if not seg:
+                                continue
+                            if seg.startswith('[') and seg.endswith(']'):
+                                chord_text = seg[1:-1].strip()
+                                if not chord_text:
+                                    continue
+                                draw.text((x, cy), chord_text, font=chord_font, fill=chord_color)
+                                try:
+                                    seg_w = chord_font.getsize(seg)[0]
                                 except Exception:
                                     seg_w = len(seg) * char_w
                                 x += seg_w
                             else:
-                                draw.text((x, y), seg, font=font, fill=fg)
                                 try:
                                     seg_w = font.getsize(seg)[0]
                                 except Exception:
                                     seg_w = len(seg) * char_w
                                 x += seg_w
+
                     else:
                         draw.text((padding, y), l, font=font, fill=fg)
                     y += line_h
