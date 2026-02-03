@@ -930,11 +930,36 @@ class PerformanceWindow(tk.Tk):
         ch = max(1, self.canvas.winfo_height())
 
         scale = cw / self._img_pil.width
-        new_h = int(self._img_pil.height * scale)
-        img_resized = self._img_pil.resize((cw, new_h), Image.LANCZOS)
+        # Ensure computed height is at least 1 to avoid PIL errors when canvas is temporarily tiny
+        new_h = max(1, int(self._img_pil.height * scale))
+        try:
+            img_resized = self._img_pil.resize((cw, new_h), Image.LANCZOS)
+        except Exception as e:
+            # Log and show a visible error fallback instead of raising
+            try:
+                debug_log({
+                    "ts": time.time(),
+                    "event": "resize_error",
+                    "error": str(e),
+                    "cw": cw,
+                    "new_h": new_h,
+                    "img_size": [self._img_pil.width, self._img_pil.height]
+                })
+            except Exception:
+                pass
+            # Draw visible fallback and return
+            try:
+                self.canvas.create_rectangle(0, 0, cw, ch, fill="#800", outline="")
+                self.canvas.create_text(cw // 2, ch // 2, text="RENDER ERROR", fill="white", font=("Arial", 48, "bold"))
+            except Exception:
+                pass
+            return
 
         top = int(self.y_offset)
         bottom = min(top + ch, new_h)
+        # Ensure crop has a positive height
+        if bottom <= top:
+            bottom = min(top + 1, new_h)
         crop = img_resized.crop((0, top, cw, bottom))
 
         if crop.height < ch:
