@@ -119,6 +119,34 @@ def save_setlist(path: str, items: List[str]) -> None:
         json.dump(items, f, indent=2)
 
 
+def debug_log(obj: dict) -> None:
+    """Append debug information to a persistent file in the project and also write a /tmp snapshot.
+    This is guarded by TELEPROMPTER_DEBUG_RENDER to avoid noisy logs in production.
+    """
+    try:
+        if not os.environ.get("TELEPROMPTER_DEBUG_RENDER"):
+            return
+    except Exception:
+        return
+
+    try:
+        # append to project-local log for easy inspection
+        base = os.path.dirname(os.path.abspath(__file__))
+        out = os.path.join(base, "tele_debug.log")
+        with open(out, "a", encoding="utf-8") as f:
+            f.write(json.dumps(obj, default=str) + "\n")
+    except Exception:
+        pass
+
+    try:
+        # keep compatibility with the temporary snapshot we used earlier
+        tmp = "/tmp/tele_debug.json"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(obj, f, default=str)
+    except Exception:
+        pass
+
+
 def basename_no_ext(p: str) -> str:
     return os.path.splitext(os.path.basename(p))[0]
 
@@ -695,13 +723,12 @@ class PerformanceWindow(tk.Tk):
             try:
                 # Debug write so we can see this branch exercised
                 if os.environ.get("TELEPROMPTER_DEBUG_RENDER"):
-                    with open("/tmp/tele_debug.json", "w") as f:
-                        json.dump({
-                            "ts": time.time(),
-                            "event": "no_setlist",
-                            "setlist_len": 0,
-                            "chart_index": self.chart_index
-                        }, f)
+                    debug_log({
+                        "ts": time.time(),
+                        "event": "no_setlist",
+                        "setlist_len": 0,
+                        "chart_index": self.chart_index
+                    })
             except Exception:
                 pass
 
@@ -818,17 +845,16 @@ class PerformanceWindow(tk.Tk):
             # Debug: write image info so we can inspect what was rendered
             try:
                 if os.environ.get("TELEPROMPTER_DEBUG_RENDER"):
-                    with open("/tmp/tele_debug.json", "w") as f:
-                        json.dump({
-                            "ts": time.time(),
-                            "event": "render_ok",
-                            "path": path,
-                            "cho_rendered": cho_rendered,
-                            "img_size": [img.width, img.height],
-                            "dark_mode": self.dark_mode,
-                            "cho_font_size": self.cho_font_size,
-                            "cho_transpose_semitones": self.cho_transpose_semitones,
-                        }, f)
+                    debug_log({
+                        "ts": time.time(),
+                        "event": "render_ok",
+                        "path": path,
+                        "cho_rendered": cho_rendered,
+                        "img_size": [img.width, img.height],
+                        "dark_mode": self.dark_mode,
+                        "cho_font_size": self.cho_font_size,
+                        "cho_transpose_semitones": self.cho_transpose_semitones,
+                    })
             except Exception:
                 pass
 
@@ -844,14 +870,13 @@ class PerformanceWindow(tk.Tk):
             # Log error details to help debug headless/black-screen issues
             try:
                 if os.environ.get("TELEPROMPTER_DEBUG_RENDER"):
-                    with open("/tmp/tele_debug.json", "w") as f:
-                        json.dump({
-                            "ts": time.time(),
-                            "event": "render_error",
-                            "path": path,
-                            "cho_rendered": cho_rendered,
-                            "error": str(e)
-                        }, f)
+                    debug_log({
+                        "ts": time.time(),
+                        "event": "render_error",
+                        "path": path,
+                        "cho_rendered": cho_rendered,
+                        "error": str(e)
+                    })
             except Exception:
                 pass
 
@@ -883,15 +908,14 @@ class PerformanceWindow(tk.Tk):
                 cw = max(1, self.canvas.winfo_width())
                 ch = max(1, self.canvas.winfo_height())
                 if os.environ.get("TELEPROMPTER_DEBUG_RENDER"):
-                    with open("/tmp/tele_debug.json", "w") as f:
-                        json.dump({
-                            "ts": time.time(),
-                            "event": "no_img",
-                            "canvas_size": [cw, ch],
-                            "y_offset": self.y_offset,
-                            "chart_index": self.chart_index,
-                            "setlist_len": len(self.setlist),
-                        }, f)
+                    debug_log({
+                        "ts": time.time(),
+                        "event": "no_img",
+                        "canvas_size": [cw, ch],
+                        "y_offset": self.y_offset,
+                        "chart_index": self.chart_index,
+                        "setlist_len": len(self.setlist),
+                    })
                 # Draw a clear fallback so we know canvas works
                 try:
                     self.canvas.create_rectangle(0, 0, cw, ch, fill="#800", outline="")
