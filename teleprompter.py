@@ -807,7 +807,8 @@ class PerformanceWindow(tk.Tk):
                     fh = font.getsize('A')[1]
                 except Exception:
                     fh = 12
-                line_h = max(18, int(fh * 1.25))
+                # Slightly larger line spacing for readability on touch screens
+                line_h = max(18, int(fh * 1.4))
                 padding = 24
                 img_h = padding * 2 + max(300, line_h * len(wrapped_lines))
 
@@ -815,15 +816,41 @@ class PerformanceWindow(tk.Tk):
                 if self.dark_mode:
                     bg = (0, 0, 0)
                     fg = (255, 255, 255)
+                    chord_color = (255, 209, 64)  # warm accent for chords on dark bg
                 else:
                     bg = (255, 255, 255)
                     fg = (0, 0, 0)
+                    chord_color = (0, 102, 204)   # blue accent for chords on light bg
 
                 img = Image.new('RGB', (base_w, img_h), color=bg)
                 draw = ImageDraw.Draw(img)
                 y = padding
+                import re
                 for l in wrapped_lines:
-                    draw.text((padding, y), l, font=font, fill=fg)
+                    x = padding
+                    if '[' in l:
+                        # split into bracketed chord segments and other text
+                        parts = re.split(r'(\[[^]]+\])', l)
+                        for seg in parts:
+                            if not seg:
+                                continue
+                            if seg.startswith('[') and seg.endswith(']'):
+                                # Draw chords (including brackets) in chord_color
+                                draw.text((x, y), seg, font=font, fill=chord_color)
+                                try:
+                                    seg_w = font.getsize(seg)[0]
+                                except Exception:
+                                    seg_w = len(seg) * char_w
+                                x += seg_w
+                            else:
+                                draw.text((x, y), seg, font=font, fill=fg)
+                                try:
+                                    seg_w = font.getsize(seg)[0]
+                                except Exception:
+                                    seg_w = len(seg) * char_w
+                                x += seg_w
+                    else:
+                        draw.text((padding, y), l, font=font, fill=fg)
                     y += line_h
 
             else:
@@ -970,14 +997,7 @@ class PerformanceWindow(tk.Tk):
         self._img_tk = ImageTk.PhotoImage(crop)
         self.canvas.create_image(0, 0, anchor="nw", image=self._img_tk)
 
-        # Debug overlay (visible when TELEPROMPTER_DEBUG_RENDER env var is set)
-        try:
-            if os.environ.get("TELEPROMPTER_DEBUG_RENDER"):
-                # Draw a high-contrast banner and large text so it's obvious on any theme
-                self.canvas.create_rectangle(0, 0, cw, 140, fill="white", outline="")
-                self.canvas.create_text(20, 28, anchor="nw", fill="black", text="RENDER TEST", font=("Arial", 48, "bold"))
-        except Exception:
-            pass
+
 
 
 def transpose_chords_in_text(text: str, semitones: int) -> str:
