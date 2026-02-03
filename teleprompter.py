@@ -119,6 +119,37 @@ def save_setlist(path: str, items: List[str]) -> None:
         json.dump(items, f, indent=2)
 
 
+# Notes: per-chart annotations (persisted next to the chart file with a .note extension)
+def note_path_for(chart_path: str) -> str:
+    return f"{chart_path}.note"
+
+
+def load_chart_note(chart_path: str) -> str:
+    p = note_path_for(chart_path)
+    if not os.path.isfile(p):
+        return ""
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return f.read()
+    except Exception:
+        return ""
+
+
+def save_chart_note(chart_path: str, text: str) -> None:
+    p = note_path_for(chart_path)
+    try:
+        # Create a .bak of existing note if one exists and no bak present
+        if os.path.isfile(p) and not os.path.isfile(p + ".bak"):
+            try:
+                shutil.copy2(p, p + ".bak")
+            except Exception:
+                pass
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(text)
+    except Exception:
+        pass
+
+
 def debug_log(obj: dict) -> None:
     """Append debug information to a persistent file in the project and also write a /tmp snapshot.
     This is guarded by TELEPROMPTER_DEBUG_RENDER to avoid noisy logs in production.
@@ -285,14 +316,21 @@ class SetupWindow(ttk.Frame):
         )
         hint.grid(row=3, column=0, sticky="w", pady=(10, 0))
 
-        # Legend: make it easy to identify .cho vs .pdf entries
-        legend = tk.Label(self, text="Legend: .cho = blue, .pdf = black", fg="#555")
+        # Legend: make it easy to identify .cho vs .pdf entries and notes
+        legend = tk.Label(self, text="Legend: .cho = blue, .pdf = black, ✎ = note present", fg="#555")
         legend.grid(row=4, column=0, sticky="w", pady=(6, 0))
 
     def _refresh_available_box(self):
         self.av_list.delete(0, "end")
         for idx, p in enumerate(self.available):
-            self.av_list.insert("end", basename_no_ext(p))
+            display = basename_no_ext(p)
+            try:
+                note_exists = os.path.isfile(note_path_for(p))
+                if note_exists:
+                    display = f"{display} ✎"
+            except Exception:
+                pass
+            self.av_list.insert("end", display)
             # Color .cho files differently from .pdf files for easier identification
             try:
                 color = "blue" if p.lower().endswith('.cho') else "black"
@@ -320,7 +358,14 @@ class SetupWindow(ttk.Frame):
     def _refresh_setlist_box(self):
         self.sl_list.delete(0, "end")
         for idx, p in enumerate(self.setlist):
-            self.sl_list.insert("end", basename_no_ext(p))
+            display = basename_no_ext(p)
+            try:
+                note_exists = os.path.isfile(note_path_for(p))
+                if note_exists:
+                    display = f"{display} ✎"
+            except Exception:
+                pass
+            self.sl_list.insert("end", display)
             try:
                 color = "blue" if p.lower().endswith('.cho') else "black"
                 try:
@@ -555,16 +600,44 @@ class PerformanceWindow(tk.Tk):
             self._open_cho_editor()
 
     def _toolbar_note(self):
-        # Placeholder: show a modal for user notes/markup (future: persist per chart)
+        # Persistent per-chart notes editor
+        path = None
+        try:
+            path = self.setlist[self.chart_index]
+        except Exception:
+            path = None
+        if not path:
+            return
+
         note_win = tk.Toplevel(self)
         note_win.title("Chart Note")
-        note_win.geometry("500x300")
+        note_win.geometry("600x420")
         note_win.transient(self)
         note_win.grab_set()
-        tk.Label(note_win, text="Add a note or markup for this chart:", font=("Arial", 13)).pack(pady=10)
+        tk.Label(note_win, text=f"Notes for: {os.path.basename(path)}", font=("Arial", 13, "bold")).pack(pady=(10, 6))
         note_text = tk.Text(note_win, font=("DejaVu Sans Mono", 12), wrap="word")
         note_text.pack(fill="both", expand=True, padx=12, pady=6)
-        tk.Button(note_win, text="Close", command=note_win.destroy).pack(pady=10)
+
+        # Load existing note (if any)
+        try:
+            existing = load_chart_note(path)
+            note_text.insert("1.0", existing)
+        except Exception:
+            pass
+
+        btns = tk.Frame(note_win)
+        btns.pack(fill="x", padx=12, pady=(6, 12))
+        def _save_and_close():
+            text = note_text.get("1.0", "end").rstrip()
+            try:
+                save_chart_note(path, text)
+            except Exception:
+                pass
+            note_win.destroy()
+            # If Setup is open elsewhere, we can't update it directly; if user returns to Setup it will show the note marker on refresh.
+
+        tk.Button(btns, text="Save", command=_save_and_close, bg="#333", fg="white").pack(side="right", padx=6)
+        tk.Button(btns, text="Close", command=note_win.destroy).pack(side="right", padx=6)
 
     def _apply_kiosk(self):
         """Force true fullscreen."""
