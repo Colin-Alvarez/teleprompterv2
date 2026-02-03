@@ -20,8 +20,8 @@ from PIL import Image, ImageOps, ImageEnhance, ImageTk, ImageDraw, ImageFont
 
 
 APP_TITLE = "PDF Teleprompter"
-DEFAULT_CHARTS_DIR = os.path.expanduser("~/teleprompter/charts")
-DEFAULT_SETLIST_PATH = os.path.expanduser("~/teleprompter/setlist.json")
+DEFAULT_CHARTS_DIR = os.path.expanduser("~/teleprompterv2/charts")
+DEFAULT_SETLIST_PATH = os.path.expanduser("~/teleprompterv2/setlist.json")
 
 # Render quality: higher = sharper, slower. Pi 5 can do 2.0-2.5, Pi 3 maybe 1.6-2.0
 RENDER_ZOOM = 2.0
@@ -216,7 +216,7 @@ class SetupWindow(ttk.Frame):
         mid.columnconfigure(2, weight=1)
         mid.rowconfigure(1, weight=1)
 
-        ttk.Label(mid, text="Available PDFs").grid(row=0, column=0, sticky="w")
+        ttk.Label(mid, text="Available Charts").grid(row=0, column=0, sticky="w")
         self.av_list = tk.Listbox(mid, selectmode="extended", height=listbox_rows)
         self.av_list.grid(row=1, column=0, sticky="nsew")
         self._refresh_available_box()
@@ -247,15 +247,43 @@ class SetupWindow(ttk.Frame):
         )
         hint.grid(row=3, column=0, sticky="w", pady=(10, 0))
 
+        # Legend: make it easy to identify .cho vs .pdf entries
+        legend = tk.Label(self, text="Legend: .cho = blue, .pdf = black", fg="#555")
+        legend.grid(row=4, column=0, sticky="w", pady=(6, 0))
+
     def _refresh_available_box(self):
         self.av_list.delete(0, "end")
-        for p in self.available:
+        for idx, p in enumerate(self.available):
             self.av_list.insert("end", basename_no_ext(p))
+            # Color .cho files differently from .pdf files for easier identification
+            try:
+                color = "blue" if p.lower().endswith('.cho') else "black"
+                # itemconfig accepts fg/foreground depending on Tk version
+                try:
+                    self.av_list.itemconfig(idx, foreground=color)
+                except Exception:
+                    try:
+                        self.av_list.itemconfig(idx, fg=color)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
 
     def _refresh_setlist_box(self):
         self.sl_list.delete(0, "end")
-        for p in self.setlist:
+        for idx, p in enumerate(self.setlist):
             self.sl_list.insert("end", basename_no_ext(p))
+            try:
+                color = "blue" if p.lower().endswith('.cho') else "black"
+                try:
+                    self.sl_list.itemconfig(idx, foreground=color)
+                except Exception:
+                    try:
+                        self.sl_list.itemconfig(idx, fg=color)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
 
     def _rescan(self):
         self.charts_dir = self.dir_var.get().strip()
@@ -416,7 +444,8 @@ class PerformanceWindow(tk.Tk):
 
         # Catch keys regardless of which widget has focus
         self.bind_all("<KeyPress>", self._on_key)
-        self.bind("<Configure>", lambda e: self._redraw())
+        # Use captured reference to self to avoid attribute lookup issues in Tk callbacks
+        self.bind("<Configure>", lambda e, _s=self: _s._redraw())
 
         self._load_current()
 
@@ -750,6 +779,43 @@ class PerformanceWindow(tk.Tk):
                 text=f"Error loading:\n{path}\n\n{e}"
             )
 
+    def _clamp_offset(self):
+        if not self._img_pil:
+            self.y_offset = 0
+            return
+        w = max(1, self.canvas.winfo_width())
+        h = max(1, self.canvas.winfo_height())
+
+        scale = w / self._img_pil.width
+        scaled_h = int(self._img_pil.height * scale)
+
+        max_off = max(0, scaled_h - h)
+        self.y_offset = max(0, min(self.y_offset, max_off))
+
+    def _redraw(self):
+        self.canvas.delete("all")
+        if not self._img_pil:
+            return
+
+        cw = max(1, self.canvas.winfo_width())
+        ch = max(1, self.canvas.winfo_height())
+
+        scale = cw / self._img_pil.width
+        new_h = int(self._img_pil.height * scale)
+        img_resized = self._img_pil.resize((cw, new_h), Image.LANCZOS)
+
+        top = int(self.y_offset)
+        bottom = min(top + ch, new_h)
+        crop = img_resized.crop((0, top, cw, bottom))
+
+        if crop.height < ch:
+            pad = Image.new("RGB", (cw, ch), (0, 0, 0))
+            pad.paste(crop, (0, 0))
+            crop = pad
+
+        self._img_tk = ImageTk.PhotoImage(crop)
+        self.canvas.create_image(0, 0, anchor="nw", image=self._img_tk)
+
 
 def transpose_chords_in_text(text: str, semitones: int) -> str:
     """Transpose chords inside [brackets] by `semitones`.
@@ -810,140 +876,6 @@ def transpose_chords_in_text(text: str, semitones: int) -> str:
 
     return re.sub(r'\[([^]]+)\]', repl, text)
 
-
-    # Simple .cho editor UI + save handling
-    # - Toggle edit mode with key defined in KeyMap (`cho_toggle_edit`).
-    # - Save writes back to the original file and creates a `.bak` on first save.
-    # - Success/failure messages shown via messagebox.
-
-    def _open_cho_editor(self):
-        if not hasattr(self, 'setlist') or not self.setlist:
-            return
-        path = self.setlist[self.chart_index]
-        if not path.lower().endswith('.cho'):
-            messagebox.showwarning("Edit mode", "Edit mode is only available for .cho files.")
-            return
-
-        # Load last text if not present
-        if self._last_cho_text is None:
-            try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    self._last_cho_text = f.read()
-            except Exception as e:
-                messagebox.showerror("Error", f"Unable to open file for editing:\n{e}")
-                return
-
-        if self.cho_edit_window is not None:
-            try:
-                self.cho_edit_window.lift()
-                return
-            except Exception:
-                self.cho_edit_window = None
-
-        win = tk.Toplevel(self)
-        win.title(f"Edit: {os.path.basename(path)}")
-        win.geometry("800x600")
-        win.transient(self)
-        win.grab_set()
-
-        frm = ttk.Frame(win, padding=8)
-        frm.pack(fill='both', expand=True)
-
-        txt = tk.Text(frm, wrap='none')
-        txt.insert('1.0', self._last_cho_text)
-        txt.pack(side='left', fill='both', expand=True)
-
-        ybar = ttk.Scrollbar(frm, orient='vertical', command=txt.yview)
-        txt['yscrollcommand'] = ybar.set
-        ybar.pack(side='right', fill='y')
-
-        btns = ttk.Frame(win, padding=8)
-        btns.pack(fill='x')
-        ttk.Button(btns, text='Save', command=lambda: self._save_cho_editor(path, txt)).pack(side='left')
-        ttk.Button(btns, text='Close', command=self._close_cho_editor).pack(side='right')
-
-        self.cho_edit_mode = True
-        self.cho_edit_window = win
-        self.cho_edit_text_widget = txt
-
-
-    def _close_cho_editor(self):
-        try:
-            if self.cho_edit_window is not None:
-                try:
-                    self.cho_edit_window.grab_release()
-                except Exception:
-                    pass
-                try:
-                    self.cho_edit_window.destroy()
-                except Exception:
-                    pass
-        finally:
-            self.cho_edit_window = None
-            self.cho_edit_text_widget = None
-            self.cho_edit_mode = False
-
-
-    def _save_cho_editor(self, path: str, txt_widget: tk.Text):
-        # Read text
-        try:
-            new_text = txt_widget.get('1.0', 'end-1c')
-        except Exception as e:
-            messagebox.showerror("Save error", f"Unable to read editor contents:\n{e}")
-            return
-
-        bak_path = f"{path}.bak"
-        try:
-            # Create backup on first save if not present
-            if not os.path.exists(bak_path):
-                shutil.copy2(path, bak_path)
-
-            with open(path, 'w', encoding='utf-8') as f:
-                f.write(new_text)
-
-            # update cached text and re-render
-            self._last_cho_text = new_text
-            self._load_current()
-            messagebox.showinfo("Saved", f"Saved {os.path.basename(path)}\nBackup: {os.path.basename(bak_path)} (created if not present)")
-        except Exception as e:
-            messagebox.showerror("Save error", f"Unable to save file:\n{e}")
-
-    def _clamp_offset(self):
-        if not self._img_pil:
-            self.y_offset = 0
-            return
-        w = max(1, self.canvas.winfo_width())
-        h = max(1, self.canvas.winfo_height())
-
-        scale = w / self._img_pil.width
-        scaled_h = int(self._img_pil.height * scale)
-
-        max_off = max(0, scaled_h - h)
-        self.y_offset = max(0, min(self.y_offset, max_off))
-
-    def _redraw(self):
-        self.canvas.delete("all")
-        if not self._img_pil:
-            return
-
-        cw = max(1, self.canvas.winfo_width())
-        ch = max(1, self.canvas.winfo_height())
-
-        scale = cw / self._img_pil.width
-        new_h = int(self._img_pil.height * scale)
-        img_resized = self._img_pil.resize((cw, new_h), Image.LANCZOS)
-
-        top = int(self.y_offset)
-        bottom = min(top + ch, new_h)
-        crop = img_resized.crop((0, top, cw, bottom))
-
-        if crop.height < ch:
-            pad = Image.new("RGB", (cw, ch), (0, 0, 0))
-            pad.paste(crop, (0, 0))
-            crop = pad
-
-        self._img_tk = ImageTk.PhotoImage(crop)
-        self.canvas.create_image(0, 0, anchor="nw", image=self._img_tk)
 
 
 def run_performance(charts_dir: str, setlist_path: str):
