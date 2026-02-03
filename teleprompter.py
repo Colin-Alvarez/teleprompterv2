@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 import fitz  # PyMuPDF
-from PIL import Image, ImageOps, ImageEnhance, ImageTk
+from PIL import Image, ImageOps, ImageEnhance, ImageTk, ImageDraw, ImageFont
 
 
 APP_TITLE = "PDF Teleprompter"
@@ -57,6 +57,35 @@ def list_pdfs(charts_dir: str) -> List[str]:
     pdfs = [f for f in os.listdir(charts_dir) if f.lower().endswith(".pdf")]
     pdfs.sort(key=lambda s: s.lower())
     return [os.path.join(charts_dir, f) for f in pdfs]
+
+
+def list_charts(charts_dir: str) -> List[str]:
+    """Return a list of chart file paths found in `charts_dir`.
+
+    Rules:
+    - Prefer `.cho` over `.pdf` when both exist for the same base filename.
+    - Only one entry is exposed per base filename (case-insensitive).
+    """
+    if not os.path.isdir(charts_dir):
+        return []
+
+    files = [f for f in os.listdir(charts_dir) if f.lower().endswith(".pdf") or f.lower().endswith(".cho")]
+
+    mapping: dict = {}
+    for f in files:
+        base, ext = os.path.splitext(f)
+        key = base.lower()
+        # prefer .cho over .pdf
+        if key not in mapping:
+            mapping[key] = f
+        else:
+            # If currently mapped to .pdf and this is .cho, replace
+            cur = mapping[key]
+            if cur.lower().endswith('.pdf') and f.lower().endswith('.cho'):
+                mapping[key] = f
+
+    chosen = sorted(mapping.values(), key=lambda s: s.lower())
+    return [os.path.join(charts_dir, f) for f in chosen]
 
 
 def load_setlist(path: str) -> List[str]:
@@ -116,8 +145,11 @@ class SetupWindow(ttk.Frame):
         self.setlist = load_setlist(self.setlist_path)
         self.setlist = [p for p in self.setlist if os.path.isfile(p)]  # clean missing
 
-        all_pdfs = list_pdfs(self.charts_dir)
-        self.available = [p for p in all_pdfs if p not in self.setlist]
+        # Use chart-aware listing (prefer .cho over .pdf) and expose one entry per base filename.
+        all_charts = list_charts(self.charts_dir)
+        setlist_bases = {basename_no_ext(p).lower() for p in self.setlist}
+        # Expose only entries whose base name isn't already in the setlist
+        self.available = [p for p in all_charts if basename_no_ext(p).lower() not in setlist_bases]
 
         self._build_ui()
 
@@ -191,8 +223,9 @@ class SetupWindow(ttk.Frame):
         # keep setlist valid (remove missing)
         self.setlist = [p for p in self.setlist if os.path.isfile(p)]
 
-        all_pdfs = list_pdfs(self.charts_dir)
-        self.available = [p for p in all_pdfs if p not in self.setlist]
+        all_charts = list_charts(self.charts_dir)
+        setlist_bases = {basename_no_ext(p).lower() for p in self.setlist}
+        self.available = [p for p in all_charts if basename_no_ext(p).lower() not in setlist_bases]
 
         self._refresh_available_box()
         self._refresh_setlist_box()
@@ -520,12 +553,48 @@ class PerformanceWindow(tk.Tk):
         path = self.setlist[self.chart_index]
 
         try:
-            with fitz.open(path) as doc:
-                self.page_index = max(0, min(self.page_index, doc.page_count - 1))
-                page = doc.load_page(self.page_index)
-                mat = fitz.Matrix(RENDER_ZOOM, RENDER_ZOOM)
-                pix = page.get_pixmap(matrix=mat, alpha=False)
-                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            # If it's a .cho (ChordPro-style) file, render the plain text into an image.
+            if path.lower().endswith('.cho'):
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        text = f.read()
+                except Exception as e:
+                    raise
+
+                # Render text into an image. Choose a reasonable base width and wrap lines.
+                font = ImageFont.load_default()
+                # pick a base width in pixels that will later be scaled to the canvas width
+                base_w = max(800, int(1200 * RENDER_ZOOM))
+                # Estimate characters per line based on an 'M' width
+                char_w = max(6, font.getsize('M')[0])
+                max_chars = max(40, base_w // char_w)
+
+                import textwrap
+                wrapped_lines = []
+                for line in text.splitlines():
+                    if not line.strip():
+                        wrapped_lines.append('')
+                    else:
+                        wrapped_lines.extend(textwrap.wrap(line, width=max_chars))
+
+                line_h = font.getsize('A')[1] + 2
+                padding = 20
+                img_h = padding * 2 + max(200, line_h * len(wrapped_lines))
+
+                img = Image.new('RGB', (base_w, img_h), color='white')
+                draw = ImageDraw.Draw(img)
+                y = padding
+                for l in wrapped_lines:
+                    draw.text((padding, y), l, font=font, fill='black')
+                    y += line_h
+
+            else:
+                with fitz.open(path) as doc:
+                    self.page_index = max(0, min(self.page_index, doc.page_count - 1))
+                    page = doc.load_page(self.page_index)
+                    mat = fitz.Matrix(RENDER_ZOOM, RENDER_ZOOM)
+                    pix = page.get_pixmap(matrix=mat, alpha=False)
+                    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
             if self.dark_mode:
                 if DARK_INVERT:
@@ -587,7 +656,8 @@ class PerformanceWindow(tk.Tk):
 def run_performance(charts_dir: str, setlist_path: str):
     setlist = load_setlist(setlist_path)
     if not setlist:
-        setlist = list_pdfs(charts_dir)
+        # prefer .cho files if present, otherwise .pdfs
+        setlist = list_charts(charts_dir)
 
     app = PerformanceWindow(setlist=setlist, keymap=KeyMap())
     app.mainloop()
