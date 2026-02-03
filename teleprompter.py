@@ -219,6 +219,16 @@ class SetupWindow(ttk.Frame):
         ttk.Label(mid, text="Available Charts").grid(row=0, column=0, sticky="w")
         self.av_list = tk.Listbox(mid, selectmode="extended", height=listbox_rows)
         self.av_list.grid(row=1, column=0, sticky="nsew")
+        # Informational hint shown when no charts are present in the charts folder
+        self.empty_label = ttk.Label(
+            mid,
+            text=f"No charts found in {self.charts_dir}.\nAdd .pdf or .cho files to this folder or change it and click Rescan.",
+            foreground="#a00",
+            wraplength=500,
+            justify="left",
+        )
+        self.empty_label.grid(row=2, column=0, sticky="w", pady=(6, 0))
+        # Initial visibility update based on current available charts
         self._refresh_available_box()
 
         btns = ttk.Frame(mid)
@@ -268,6 +278,16 @@ class SetupWindow(ttk.Frame):
                         pass
             except Exception:
                 pass
+
+        # Show or hide the empty-folder hint
+        try:
+            if not self.available:
+                self.empty_label.grid()
+            else:
+                # Remove the hint when charts are available to keep UI clean
+                self.empty_label.grid_remove()
+        except Exception:
+            pass
 
     def _refresh_setlist_box(self):
         self.sl_list.delete(0, "end")
@@ -671,6 +691,10 @@ class PerformanceWindow(tk.Tk):
 
     def _load_current(self):
         if not self.setlist:
+            # Nothing to show — give a friendly message instead of silently doing nothing.
+            self.canvas.delete("all")
+            self.canvas.create_text(20, 20, anchor="nw", fill="white",
+                                    text="No charts available. Open Setup to add charts.")
             return
 
         path = self.setlist[self.chart_index]
@@ -879,7 +903,11 @@ def transpose_chords_in_text(text: str, semitones: int) -> str:
 
 
 def run_performance(charts_dir: str, setlist_path: str):
+    # Load saved setlist, but prefer on-disk files: filter missing entries and
+    # fall back to scanning the charts folder if nothing is available.
     setlist = load_setlist(setlist_path)
+    # filter out missing files (user may have renamed/moved files)
+    setlist = [p for p in setlist if os.path.isfile(p)]
     if not setlist:
         # prefer .cho files if present, otherwise .pdfs
         setlist = list_charts(charts_dir)
