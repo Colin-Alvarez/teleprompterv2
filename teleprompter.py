@@ -807,12 +807,12 @@ class PerformanceWindow(tk.Tk):
                     fh = font.getsize('A')[1]
                 except Exception:
                     fh = 12
-                # Slightly larger line spacing for readability on touch screens
-                line_h = max(18, int(fh * 1.4))
+                base_line_h = max(18, int(fh * 1.4))
+                # Double spacing so there is an empty line between lyrics to accommodate chord lines above
+                lyric_spacing = base_line_h * 2
                 padding = 24
-                # Account for an extra chord line above any wrapped line that contains bracketed chords
-                visual_lines = sum(1 + (1 if '[' in l else 0) for l in wrapped_lines)
-                img_h = padding * 2 + max(300, line_h * visual_lines)
+                # The image height uses lyric_spacing per wrapped line
+                img_h = padding * 2 + max(300, lyric_spacing * len(wrapped_lines))
 
                 # Background/text colors respect dark_mode without additional transforms
                 if self.dark_mode:
@@ -842,7 +842,7 @@ class PerformanceWindow(tk.Tk):
                     chord_font = font
 
                 # Render: if a wrapped line contains bracketed chords, render a chord-only line above the lyric line
-                chord_offset = max(6, int(line_h * 0.45))  # vertical offset between chord line and lyric
+                chord_offset = max(8, int(base_line_h * 0.6))  # vertical offset between chord line and lyric
                 for l in wrapped_lines:
                     x = padding
                     if '[' in l:
@@ -856,7 +856,7 @@ class PerformanceWindow(tk.Tk):
                             if not seg:
                                 continue
                             if seg.startswith('[') and seg.endswith(']'):
-                                # skip chords when drawing lyrics
+                                # skip chords when drawing lyrics, advance x by bracketed width
                                 try:
                                     seg_w = font.getsize(seg)[0]
                                 except Exception:
@@ -894,8 +894,10 @@ class PerformanceWindow(tk.Tk):
                                 x += seg_w
 
                     else:
-                        draw.text((padding, y), l, font=font, fill=fg)
-                    y += line_h
+                        # Center plain lyric vertically within the lyric_spacing area
+                        ly = y + max(0, (lyric_spacing - base_line_h) // 2)
+                        draw.text((padding, ly), l, font=font, fill=fg)
+                    y += lyric_spacing
 
             else:
                 with fitz.open(path) as doc:
