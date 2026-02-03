@@ -711,6 +711,21 @@ class PerformanceWindow(tk.Tk):
             return
 
         path = self.setlist[self.chart_index]
+        # Debug: record which path we're about to load and whether it exists
+        try:
+            if os.environ.get("TELEPROMPTER_DEBUG_RENDER"):
+                with open("/tmp/tele_debug.json", "w") as f:
+                    json.dump({
+                        "ts": time.time(),
+                        "event": "load_attempt",
+                        "path": path,
+                        "exists": os.path.isfile(path),
+                        "ext": os.path.splitext(path)[1].lower(),
+                        "chart_index": self.chart_index,
+                        "setlist_len": len(self.setlist),
+                    }, f)
+        except Exception:
+            pass
 
         try:
             cho_rendered = False
