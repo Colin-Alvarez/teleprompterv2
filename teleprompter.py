@@ -788,10 +788,6 @@ class PerformanceWindow(tk.Tk):
                 except Exception:
                     base_w = max(800, int(1200))
 
-                # Legal page height (8.5 x 14 inches) aspect ratio: height = width * (14 / 8.5)
-                LEGAL_ASPECT = 14.0 / 8.5
-                legal_h = int(base_w * LEGAL_ASPECT)
-
                 # Estimate characters per line and wrap using available content width
                 try:
                     char_w = max(4, font.getsize('M')[0])
@@ -817,9 +813,8 @@ class PerformanceWindow(tk.Tk):
                 lyric_spacing = base_line_h * 2
                 padding = 24
                 # The image height uses lyric_spacing per wrapped line
-                total_needed = padding * 2 + max(300, lyric_spacing * len(wrapped_lines))
-                # Ensure we operate at least at Legal page height for consistent vertical sizing
-                img_h = max(legal_h, total_needed)
+                # Continuous flow: height equals the content height (no enforced page minimum)
+                img_h = padding * 2 + max(300, lyric_spacing * len(wrapped_lines))
 
                 # Background/text colors respect dark_mode without additional transforms
                 if self.dark_mode:
