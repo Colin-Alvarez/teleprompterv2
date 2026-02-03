@@ -781,18 +781,23 @@ class PerformanceWindow(tk.Tk):
                     except Exception:
                         font = ImageFont.load_default()
 
-                # Determine base width using screen width so we scale nicely later in _redraw
+                # Determine base width using screen width so text fills the screen width by default
                 try:
-                    base_w = max(800, int(self.winfo_screenwidth() * max(1.0, RENDER_ZOOM)))
+                    screen_w = max(800, int(self.winfo_screenwidth()))
+                    base_w = screen_w
                 except Exception:
-                    base_w = max(800, int(1200 * RENDER_ZOOM))
+                    base_w = max(800, int(1200))
 
-                # Estimate characters per line and wrap
+                # Legal page height (8.5 x 14 inches) aspect ratio: height = width * (14 / 8.5)
+                LEGAL_ASPECT = 14.0 / 8.5
+                legal_h = int(base_w * LEGAL_ASPECT)
+
+                # Estimate characters per line and wrap using available content width
                 try:
                     char_w = max(4, font.getsize('M')[0])
                 except Exception:
                     char_w = 8
-                max_chars = max(40, base_w // char_w)
+                max_chars = max(40, (base_w - (padding * 2)) // char_w)
 
                 import textwrap
                 wrapped_lines = []
@@ -812,7 +817,9 @@ class PerformanceWindow(tk.Tk):
                 lyric_spacing = base_line_h * 2
                 padding = 24
                 # The image height uses lyric_spacing per wrapped line
-                img_h = padding * 2 + max(300, lyric_spacing * len(wrapped_lines))
+                total_needed = padding * 2 + max(300, lyric_spacing * len(wrapped_lines))
+                # Ensure we operate at least at Legal page height for consistent vertical sizing
+                img_h = max(legal_h, total_needed)
 
                 # Background/text colors respect dark_mode without additional transforms
                 if self.dark_mode:
