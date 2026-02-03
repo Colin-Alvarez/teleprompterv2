@@ -487,6 +487,28 @@ class PerformanceWindow(tk.Tk):
         )
         self.exit_btn.place(relx=1.0, rely=0.0, anchor="ne", x=-20, y=20)
 
+        # Toolbar under Exit button
+        self.toolbar = tk.Frame(self, bg="#222")
+        self.toolbar.place(relx=1.0, rely=0.0, anchor="ne", x=-20, y=80)
+
+        # Transpose controls
+        self.transpose_label = tk.Label(self.toolbar, text="Transpose:", bg="#222", fg="white", font=("Arial", 14))
+        self.transpose_label.pack(side="left", padx=(0, 4))
+        self.transpose_down_btn = tk.Button(self.toolbar, text="-", command=lambda: self._toolbar_transpose(-1), width=2, font=("Arial", 14, "bold"), bg="#333", fg="white", relief="flat")
+        self.transpose_down_btn.pack(side="left", padx=2)
+        self.transpose_up_btn = tk.Button(self.toolbar, text="+", command=lambda: self._toolbar_transpose(1), width=2, font=("Arial", 14, "bold"), bg="#333", fg="white", relief="flat")
+        self.transpose_up_btn.pack(side="left", padx=2)
+        self.transpose_reset_btn = tk.Button(self.toolbar, text="Reset", command=lambda: self._toolbar_transpose(0), font=("Arial", 12), bg="#333", fg="white", relief="flat")
+        self.transpose_reset_btn.pack(side="left", padx=(2, 8))
+
+        # Edit button
+        self.edit_btn = tk.Button(self.toolbar, text="Edit", command=self._toolbar_edit, font=("Arial", 12), bg="#333", fg="white", relief="flat")
+        self.edit_btn.pack(side="left", padx=8)
+
+        # Note button (placeholder)
+        self.note_btn = tk.Button(self.toolbar, text="Note", command=self._toolbar_note, font=("Arial", 12), bg="#333", fg="white", relief="flat")
+        self.note_btn.pack(side="left", padx=8)
+
         # Apply fullscreen/geometry after a short delay so WM can't fight us
         self.after(200, self._apply_kiosk)
 
@@ -500,6 +522,49 @@ class PerformanceWindow(tk.Tk):
     def _exit_performance(self):
         self.exit_to_setup = True
         self.destroy()
+
+    def _toolbar_transpose(self, direction: int):
+        # Only applies to .cho
+        path = None
+        try:
+            path = self.setlist[self.chart_index]
+        except Exception:
+            path = None
+        if not (path and path.lower().endswith('.cho')):
+            return
+        if direction == 0:
+            self.cho_transpose_semitones = 0
+        elif direction > 0:
+            self.cho_transpose_semitones = (self.cho_transpose_semitones + 1) % 12
+        else:
+            self.cho_transpose_semitones = (self.cho_transpose_semitones - 1) % 12
+        self._load_current()
+
+    def _toolbar_edit(self):
+        # Only applies to .cho
+        path = None
+        try:
+            path = self.setlist[self.chart_index]
+        except Exception:
+            path = None
+        if not (path and path.lower().endswith('.cho')):
+            return
+        if self.cho_edit_mode:
+            self._close_cho_editor()
+        else:
+            self._open_cho_editor()
+
+    def _toolbar_note(self):
+        # Placeholder: show a modal for user notes/markup (future: persist per chart)
+        note_win = tk.Toplevel(self)
+        note_win.title("Chart Note")
+        note_win.geometry("500x300")
+        note_win.transient(self)
+        note_win.grab_set()
+        tk.Label(note_win, text="Add a note or markup for this chart:", font=("Arial", 13)).pack(pady=10)
+        note_text = tk.Text(note_win, font=("DejaVu Sans Mono", 12), wrap="word")
+        note_text.pack(fill="both", expand=True, padx=12, pady=6)
+        tk.Button(note_win, text="Close", command=note_win.destroy).pack(pady=10)
 
     def _apply_kiosk(self):
         """Force true fullscreen."""
