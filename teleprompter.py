@@ -532,27 +532,45 @@ class PerformanceWindow(tk.Tk):
         )
         self.exit_btn.place(relx=1.0, rely=0.0, anchor="ne", x=-20, y=20)
 
-        # Toolbar under Exit button
-        self.toolbar = tk.Frame(self, bg="#222")
-        self.toolbar.place(relx=1.0, rely=0.0, anchor="ne", x=-20, y=80)
+        # Bottom full-width toolbar
+        self.toolbar = tk.Frame(self, bg="#111", height=64)
+        # place across bottom, full width
+        self.toolbar.place(relx=0, rely=1.0, anchor="sw", relwidth=1, height=64)
+        # use grid to center controls
+        self.toolbar.grid_rowconfigure(0, weight=1)
+        self.toolbar.grid_columnconfigure(0, weight=1)
+        self.toolbar.grid_columnconfigure(1, weight=0)
+        self.toolbar.grid_columnconfigure(2, weight=1)
 
-        # Transpose controls
-        self.transpose_label = tk.Label(self.toolbar, text="Transpose:", bg="#222", fg="white", font=("Arial", 14))
-        self.transpose_label.pack(side="left", padx=(0, 4))
-        self.transpose_down_btn = tk.Button(self.toolbar, text="-", command=lambda: self._toolbar_transpose(-1), width=2, font=("Arial", 14, "bold"), bg="#333", fg="white", relief="flat")
-        self.transpose_down_btn.pack(side="left", padx=2)
-        self.transpose_up_btn = tk.Button(self.toolbar, text="+", command=lambda: self._toolbar_transpose(1), width=2, font=("Arial", 14, "bold"), bg="#333", fg="white", relief="flat")
-        self.transpose_up_btn.pack(side="left", padx=2)
-        self.transpose_reset_btn = tk.Button(self.toolbar, text="Reset", command=lambda: self._toolbar_transpose(0), font=("Arial", 12), bg="#333", fg="white", relief="flat")
-        self.transpose_reset_btn.pack(side="left", padx=(2, 8))
+        left_frame = tk.Frame(self.toolbar, bg="#111")
+        left_frame.grid(row=0, column=0, sticky="w", padx=8)
+        center_frame = tk.Frame(self.toolbar, bg="#111")
+        center_frame.grid(row=0, column=1)
+        right_frame = tk.Frame(self.toolbar, bg="#111")
+        right_frame.grid(row=0, column=2, sticky="e", padx=8)
 
-        # Edit button
-        self.edit_btn = tk.Button(self.toolbar, text="Edit", command=self._toolbar_edit, font=("Arial", 12), bg="#333", fg="white", relief="flat")
-        self.edit_btn.pack(side="left", padx=8)
+        # Button styling
+        _btn_bg = "#222"
+        _btn_active = "#1E90FF"  # DodgerBlue
+        _btn_fg = "white"
+        _btn_font = ("Arial", 16, "bold")
+        _small_font = ("Arial", 12)
 
-        # Note button (placeholder)
-        self.note_btn = tk.Button(self.toolbar, text="Note", command=self._toolbar_note, font=("Arial", 12), bg="#333", fg="white", relief="flat")
-        self.note_btn.pack(side="left", padx=8)
+        # Transpose controls (left)
+        self.transpose_label = tk.Label(left_frame, text="Transpose:", bg=_btn_bg, fg=_btn_fg, font=("Arial", 14))
+        self.transpose_label.pack(side="left", padx=(6, 8))
+        self.transpose_down_btn = tk.Button(left_frame, text="-", command=lambda: self._toolbar_transpose(-1), width=3, font=_btn_font, bg=_btn_bg, fg=_btn_fg, activebackground=_btn_active, activeforeground=_btn_fg, bd=0, relief="flat")
+        self.transpose_down_btn.pack(side="left", padx=4, pady=8)
+        self.transpose_up_btn = tk.Button(left_frame, text="+", command=lambda: self._toolbar_transpose(1), width=3, font=_btn_font, bg=_btn_bg, fg=_btn_fg, activebackground=_btn_active, activeforeground=_btn_fg, bd=0, relief="flat")
+        self.transpose_up_btn.pack(side="left", padx=4, pady=8)
+        self.transpose_reset_btn = tk.Button(left_frame, text="Reset", command=lambda: self._toolbar_transpose(0), font=_small_font, bg=_btn_bg, fg=_btn_fg, activebackground=_btn_active, activeforeground=_btn_fg, bd=0, relief="flat")
+        self.transpose_reset_btn.pack(side="left", padx=(8, 4), pady=8)
+
+        # Edit and Note centered
+        self.edit_btn = tk.Button(center_frame, text="Edit", command=self._toolbar_edit, font=_btn_font, bg=_btn_bg, fg=_btn_fg, activebackground=_btn_active, activeforeground=_btn_fg, bd=0, relief="flat", padx=18, pady=6)
+        self.edit_btn.pack(side="left", padx=12)
+        self.note_btn = tk.Button(center_frame, text="Note", command=self._toolbar_note, font=_btn_font, bg=_btn_bg, fg=_btn_fg, activebackground=_btn_active, activeforeground=_btn_fg, bd=0, relief="flat", padx=18, pady=6)
+        self.note_btn.pack(side="left", padx=12)
 
         # Apply fullscreen/geometry after a short delay so WM can't fight us
         self.after(200, self._apply_kiosk)
